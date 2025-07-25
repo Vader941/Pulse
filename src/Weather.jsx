@@ -372,137 +372,162 @@ function Weather() {
 
   if (loading) return <p className="text-gray-500">Loading weather data...</p>;
 
-  return (
-    <div>
-      {/* Error Popup */}
-      {error && (
-        <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-lg z-50 max-w-md">
-          <div className="flex items-start">
-            <div className="flex-1">
-              <strong className="font-bold">Error: </strong>
-              <span className="block sm:inline">{error}</span>
-            </div>
-            <button
-              onClick={clearError}
-              className="ml-2 text-red-700 hover:text-red-900"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
-      
-      <div className="flex items-center gap-2 mb-4">
-        <input
-          type="text"
-          placeholder="Enter city name or ZIP code"
-          className="px-3 py-2 border rounded w-full max-w-xs"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyPress={handleKeyPress}
-        />
-        <button
-          onClick={handleSearch}
-          className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          🔍
-        </button>
-        <button
-          onClick={() => {
-            setManualOverride(false);
-            setInputValue("");
-            setSearchQuery("");
-          }}
-          className="ml-2 p-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
-        >
-          ↺ Use My Location
-        </button>
-      </div>
+return (
+  <div
+    className="min-h-screen bg-cover bg-center bg-no-repeat"
+    style={{ backgroundImage: `url('/weather-bg.png')` }}
+  >
+    <div className="min-h-screen px-4 sm:px-8 py-6 flex flex-col items-center">
 
-      {weather && (
-        <div className="bg-gray-100 p-4 rounded shadow-md max-w-md">
-          <h2 className="text-xl font-bold mb-2">
-            {(() => {
-              const weatherName = weather.name || "";
-              const locationName = locationInfo?.name || "";
-              let cityName = weatherName;
-
-              if (
-                locationName &&
-                !locationName.includes("County") &&
-                !locationName.includes("Parish") &&
-                !locationName.includes("ZIP") &&
-                !locationName.includes("Postal") &&
-                locationName !== locationInfo?.state &&
-                locationName !== locationInfo?.country
-              ) {
-                cityName = locationName;
-              }
-
-              const region = locationInfo?.state || weather.sys?.country || "";
-              return `${cityName}${region ? `, ${region}` : ""}`;
-            })()}
-          </h2>
-          <div className="flex items-center gap-4">
-            <img
-              src={`https://openweathermap.org/img/wn/${weather.weather?.[0]?.icon}@2x.png`}
-              alt={weather.weather?.[0]?.description || "Weather icon"}
-              className="w-16 h-16"
-            />
-            <div>
-              <p className="text-3xl font-semibold">
-                {Math.round(weather.main?.temp || 0)}°F
-              </p>
-              <p className="capitalize text-gray-700">
-                {weather.weather?.[0]?.description || "Unknown"}
-              </p>
-            </div>
-          </div>
-          <p className="text-sm text-gray-600 mt-2">
-            Feels like {Math.round(weather.main?.feels_like || 0)}°F • Humidity{" "}
-            {weather.main?.humidity || 0}%
-          </p>
-        </div>
-      )}
-
-      {weather && (
-        <div className="mt-6">
-          <h3 className="text-lg font-bold mb-2">Weather Map</h3>
-          <div id="weather-map" className="h-80 w-full max-w-2xl rounded shadow border" />
-        </div>
-      )}
-
-      {forecast && (
-        <div className="mt-6">
-          <h3 className="text-lg font-bold mb-2">5-Day Forecast</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {forecast.map((day, index) => (
-              <div
-                key={index}
-                className="bg-white rounded shadow p-3 text-center"
-              >
-                <p className="font-semibold">
-                  {new Date(day.dt * 1000).toLocaleDateString("en-US", {
-                    weekday: "short",
-                  })}
-                </p>
-                <img
-                  src={`https://openweathermap.org/img/wn/${day.icon}@2x.png`}
-                  alt={day.description || "Forecast icon"}
-                  className="w-12 h-12 mx-auto"
-                />
-                <p className="text-sm text-gray-700 capitalize">
-                  {day.description}
-                </p>
-                <p className="text-sm">High: {Math.round(day.high)}°F</p>
-                <p className="text-sm">Low: {Math.round(day.low)}°F</p>
+      <div className="flex flex-col items-center gap-6 w-full max-w-5xl">
+        {/* Error Popup */}
+        {error && (
+          <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-lg z-50 max-w-md">
+            <div className="flex items-start">
+              <div className="flex-1">
+                <strong className="font-bold">Error: </strong>
+                <span className="block sm:inline">{error}</span>
               </div>
-            ))}
+              <button
+                onClick={clearError}
+                className="ml-2 text-red-700 hover:text-red-900"
+              >
+                ✕
+              </button>
+            </div>
           </div>
+        )}
+
+        {/* Search Bar */}
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            type="text"
+            placeholder="Enter city name or ZIP code"
+            className="px-3 py-2 border rounded w-full max-w-xs"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyPress={handleKeyPress}
+          />
+          <button
+            onClick={handleSearch}
+            className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+          >
+            🔍
+          </button>
+          <button
+            onClick={() => {
+              setManualOverride(false);
+              setInputValue("");
+              setSearchQuery("");
+            }}
+            className="ml-2 p-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
+          >
+            ↺ Use My Location
+          </button>
         </div>
-      )}
+
+        {/* Current Weather & Map */}
+        {weather && (
+          <div className="flex flex-col md:flex-row gap-6 w-full">
+            {/* Weather Card */}
+            <div className="bg-white shadow-lg rounded-xl p-6 w-full md:w-1/2">
+              <h2 className="text-xl font-bold mb-2">
+                {(() => {
+                  const weatherName = weather.name || "";
+                  const locationName = locationInfo?.name || "";
+                  let cityName = weatherName;
+
+                  if (
+                    locationName &&
+                    !locationName.includes("County") &&
+                    !locationName.includes("Parish") &&
+                    !locationName.includes("ZIP") &&
+                    !locationName.includes("Postal") &&
+                    locationName !== locationInfo?.state &&
+                    locationName !== locationInfo?.country
+                  ) {
+                    cityName = locationName;
+                  }
+
+                  const region = locationInfo?.state || weather.sys?.country || "";
+                  return `${cityName}${region ? `, ${region}` : ""}`;
+                })()}
+              </h2>
+
+              <div className="flex items-center gap-4">
+                <img
+                  src={`https://openweathermap.org/img/wn/${weather.weather?.[0]?.icon}@2x.png`}
+                  alt={weather.weather?.[0]?.description || "Weather icon"}
+                  className="w-16 h-16"
+                />
+                <div>
+                  <p className="text-3xl font-semibold">
+                    {Math.round(weather.main?.temp || 0)}°F
+                  </p>
+                  <p className="capitalize text-gray-700">
+                    {weather.weather?.[0]?.description || "Unknown"}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-600 mt-2">
+                Feels like {Math.round(weather.main?.feels_like || 0)}°F • Humidity{" "}
+                {weather.main?.humidity || 0}%
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Last updated at{" "}
+                {new Date().toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </p>
+            </div>
+
+            {/* Weather Map */}
+            <div className="w-full md:w-1/2 h-80 rounded-xl shadow-lg border overflow-hidden">
+              <div id="weather-map" className="h-full w-full" />
+            </div>
+          </div>
+        )}
+
+        {/* Forecast */}
+        {forecast && (
+          <div className="mt-6 w-full">
+            <h3 className="text-lg font-bold mb-2">5-Day Forecast</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+              {forecast.map((day, index) => (
+                <div
+                  key={index}
+                  className="bg-white rounded shadow p-3 text-center"
+                >
+                  <p className="font-semibold">
+                    {new Date(day.date).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </p>
+                  <img
+                    src={`https://openweathermap.org/img/wn/${day.icon}@2x.png`}
+                    alt={day.description || "Forecast icon"}
+                    className="w-9 h-12 mx-auto"
+                  />
+                  <p className="text-sm text-gray-700 capitalize">
+                    {day.description}
+                  </p>
+                  <p className="text-sm">High: {Math.round(day.high)}°F</p>
+                  <p className="text-sm">Low: {Math.round(day.low)}°F</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
-  );
+  </div>
+);
+
+
 }
 
 export default Weather;
