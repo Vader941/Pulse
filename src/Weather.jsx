@@ -375,7 +375,7 @@ function Weather() {
 return (
   <div
     className="min-h-screen bg-cover bg-center bg-no-repeat"
-    style={{ backgroundImage: `url('/weather-bg.png')` }}
+    style={{ backgroundImage: `url('./weather-bg.png')` }}
   >
     <div className="min-h-screen px-4 sm:px-8 py-6 flex flex-col items-center">
 
