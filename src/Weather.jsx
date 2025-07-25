@@ -1,105 +1,508 @@
-import React, {useEffect, useState} from "react";
+import React, { useEffect, useState, useRef } from "react";
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
 
-function getWeatherIcon(code) {
-  const icons = {
-    0: "☀️",
-    1: "🌤️",
-    2: "⛅",
-    3: "☁️",
-    45: "🌫️",
-    48: "🌫️",
-    51: "🌦️",
-    53: "🌦️",
-    55: "🌧️",
-    61: "🌧️",
-    63: "🌧️",
-    65: "🌧️",
-    71: "❄️",
-    73: "🌨️",
-    75: "❄️",
-    80: "🌧️",
-    81: "🌧️",
-    82: "🌧️",
-    95: "⛈️",
-    96: "⛈️",
-    99: "⛈️",
-  };
+// Fix for default markers in Leaflet
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+});
 
-  return icons[code] || "❓";
-}
+const CLOUDFLARE_WORKER_URL = "https://pulse-weather.nable.workers.dev/";
 
-function getWeatherDescription(code) {
-  const codes = {
-    0: "Clear sky",
-    1: "Mainly clear",
-    2: "Partly cloudy",
-    3: "Overcast",
-    45: "Fog",
-    48: "Depositing rime fog",
-    51: "Light drizzle",
-    53: "Moderate drizzle",
-    55: "Dense drizzle",
-    61: "Light rain",
-    63: "Moderate rain",
-    65: "Heavy rain",
-    71: "Light snow",
-    73: "Moderate snow",
-    75: "Heavy snow",
-    80: "Rain showers",
-    81: "Moderate showers",
-    82: "Violent rain showers",
-    95: "Thunderstorm",
-    96: "Thunderstorm with hail",
-    99: "Thunderstorm with heavy hail"
-  };
+const getLocationDetails = async (lat, lon) => {
+  try {
+    const response = await fetch(
+      `${CLOUDFLARE_WORKER_URL}?endpoint=geocoding&lat=${lat}&lon=${lon}&limit=5`
+    );
+    if (response.ok) {
+      const data = await response.json();
+      const cityResult =
+        data.find(
+          (item) =>
+            item.name &&
+            !item.name.includes("County") &&
+            !item.name.includes("Parish") &&
+            !item.name.includes("ZIP") &&
+            !item.name.includes("Postal") &&
+            item.name !== item.state &&
+            item.name !== item.country
+        ) || data[0];
+      return cityResult || null;
+    }
+  } catch (error) {
+    console.log("Could not fetch detailed location info:", error);
+  }
+  return null;
+};
 
-  return codes[code] || "Unknown";
-}
+const getForecast = async (lat, lon) => {
+  try {
+    const response = await fetch(
+      `${CLOUDFLARE_WORKER_URL}?endpoint=forecast&lat=${lat}&lon=${lon}`
+    );
+    if (!response.ok) {
+      throw new Error("Failed to fetch forecast data.");
+    }
+    const data = await response.json();
+    return summarizeForecast(data.list); // summarized version
+  } catch (error) {
+    console.error("Forecast error:", error);
+    return null;
+  }
+};
 
-function toFahrenheit(celsius){
-    return(celsius *9) /5 + 32;
-}
+const summarizeForecast = (list) => {
+  const dailyMap = {};
+  const today = new Date().toISOString().split("T")[0];
+
+  list.forEach((entry) => {
+    const date = new Date(entry.dt * 1000).toISOString().split("T")[0];
+    if (date === today) return; // ⛔ skip today's data
+
+    if (!dailyMap[date]) {
+      dailyMap[date] = {
+        temps: [],
+        icons: {},
+        descriptions: {},
+        dt: entry.dt,
+      };
+    }
+
+    const temp = entry.main.temp;
+    dailyMap[date].temps.push(temp);
+
+    const icon = entry.weather?.[0]?.icon;
+    const desc = entry.weather?.[0]?.description;
+
+    if (icon) {
+      dailyMap[date].icons[icon] = (dailyMap[date].icons[icon] || 0) + 1;
+    }
+
+    if (desc) {
+      dailyMap[date].descriptions[desc] = (dailyMap[date].descriptions[desc] || 0) + 1;
+    }
+  });
+
+  return Object.entries(dailyMap)
+    .slice(0, 5) // still only want 5 days
+    .map(([date, data]) => {
+      const high = Math.max(...data.temps);
+      const low = Math.min(...data.temps);
+
+      const topIcon = Object.entries(data.icons).sort((a, b) => b[1] - a[1])[0]?.[0];
+      const topDesc = Object.entries(data.descriptions).sort((a, b) => b[1] - a[1])[0]?.[0];
+
+      return {
+        date,
+        dt: data.dt,
+        high,
+        low,
+        icon: topIcon,
+        description: topDesc,
+      };
+    });
+};
+
 
 function Weather() {
   const [weather, setWeather] = useState(null);
-  const [isFahrenheit, setIsFahrenheit] = useState(false);
+  const [forecast, setForecast] = useState(null);
+  const [inputValue, setInputValue] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [manualOverride, setManualOverride] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [locationInfo, setLocationInfo] = useState(null);
+  const mapRef = useRef(null);
+  const mapInstanceRef = useRef(null);
 
   useEffect(() => {
-    fetch("https://api.open-meteo.com/v1/forecast?latitude=40.71&longitude=-74.01&current=temperature_2m,weather_code")
-      .then(res => res.json())
-      .then(data => {
-        setWeather(data.current);
-      });
-  }, []);
+    const fetchWeatherData = async () => {
+      setLoading(true);
+      setError(null);
+      setLocationInfo(null);
 
-if (!weather){
-    return <p>Loading weather...</p>;
-}
+      try {
+        if (manualOverride && searchQuery.trim() !== "") {
+          const isZipCode = /^\d{5}(-\d{4})?$/.test(searchQuery.trim());
+          let weatherUrl;
 
-return (
+          if (isZipCode) {
+            weatherUrl = `${CLOUDFLARE_WORKER_URL}?endpoint=weather&zip=${encodeURIComponent(
+              searchQuery.trim()
+            )}`;
+          } else {
+            // For city searches, don't encode commas and spaces as strictly
+            // This helps with "City, State" format
+            const cleanQuery = searchQuery.trim();
+            weatherUrl = `${CLOUDFLARE_WORKER_URL}?endpoint=weather&q=${encodeURIComponent(cleanQuery)}`;
+          }
+
+          const response = await fetch(weatherUrl);
+          if (!response.ok) {
+            if (response.status === 404) {
+              // Try alternative formats if the first search fails
+              if (!isZipCode && searchQuery.includes(',')) {
+                // If it contains a comma, try with country code
+                const searchWithCountry = searchQuery.includes('US') ? searchQuery : `${searchQuery},US`;
+                const retryUrl = `${CLOUDFLARE_WORKER_URL}?endpoint=weather&q=${encodeURIComponent(searchWithCountry)}`;
+                const retryResponse = await fetch(retryUrl);
+                
+                if (retryResponse.ok) {
+                  const data = await retryResponse.json();
+                  console.log('Setting weather data:', data.name, data.coord);
+                  const locationDetails = await getLocationDetails(data.coord.lat, data.coord.lon);
+                  setLocationInfo(locationDetails);
+                  setWeather(data);
+
+                  const forecastData = await getForecast(data.coord.lat, data.coord.lon);
+                  setForecast(forecastData);
+                  setLoading(false);
+                  return;
+                }
+              }
+              throw new Error("Location not found. Please check the spelling and try again. For US cities, try format like 'Miami, FL' or 'Miami, Florida'.");
+            } else if (response.status >= 500) {
+              throw new Error("Weather service is temporarily unavailable. Please try again later.");
+            } else {
+              throw new Error(`Weather service error: ${response.status}`);
+            }
+          }
+
+          const data = await response.json();
+          console.log('Setting weather data:', data.name, data.coord);
+          const locationDetails = await getLocationDetails(data.coord.lat, data.coord.lon);
+          setLocationInfo(locationDetails);
+          setWeather(data);
+
+          const forecastData = await getForecast(data.coord.lat, data.coord.lon);
+          setForecast(forecastData);
+        } else if (!manualOverride) {
+          navigator.geolocation.getCurrentPosition(
+            async (position) => {
+              try {
+                const { latitude, longitude } = position.coords;
+                const response = await fetch(
+                  `${CLOUDFLARE_WORKER_URL}?endpoint=weather&lat=${latitude}&lon=${longitude}`
+                );
+
+                if (!response.ok) {
+                  throw new Error(`Weather service error: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log('Setting weather data (geolocation):', data.name, data.coord);
+                const locationDetails = await getLocationDetails(latitude, longitude);
+                setLocationInfo(locationDetails);
+                setWeather(data);
+
+                const forecastData = await getForecast(latitude, longitude);
+                setForecast(forecastData);
+
+                setLoading(false);
+              } catch (error) {
+                console.error("Weather fetch error:", error);
+                setError(error.message);
+                setLoading(false);
+              }
+            },
+            (error) => {
+              console.error("Geolocation error:", error);
+              setError("Unable to get your location. Please enter a city manually.");
+              setLoading(false);
+            }
+          );
+          return;
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error("Weather fetch error:", error);
+        setError(error.message);
+        setLoading(false);
+      }
+    };
+
+    fetchWeatherData();
+  }, [manualOverride, searchQuery]);
+
+  // Weather map useEffect with proper cleanup
+  useEffect(() => {
+    console.log('Map useEffect triggered, weather:', weather?.name, weather?.coord);
+    
+    // Cleanup existing map
+    if (mapInstanceRef.current) {
+      console.log('Removing existing map');
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
+    }
+
+    if (weather && weather.coord) {
+      console.log('Creating new map for', weather.name, 'at', weather.coord);
+      
+      // Add a longer delay and retry mechanism
+      const createMap = () => {
+        const mapContainer = document.getElementById('weather-map');
+        if (!mapContainer) {
+          console.log('Map container not found, retrying...');
+          // Retry after another short delay
+          setTimeout(createMap, 200);
+          return;
+        }
+        
+        const { lat, lon } = weather.coord;
+        console.log('Setting up map at coords:', lat, lon);
+
+        // Clear container
+        mapContainer.innerHTML = '';
+
+        // Create new map instance
+        const map = L.map('weather-map').setView([lat, lon], 10);
+        mapInstanceRef.current = map;
+        console.log('Map created and stored in ref');
+
+        // Add base map tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; OpenStreetMap contributors',
+        }).addTo(map);
+
+        // Add a marker for the current location
+        const marker = L.marker([lat, lon]).addTo(map);
+        marker.bindPopup(`
+          <div>
+            <strong>${weather.name}</strong><br/>
+            ${weather.weather?.[0]?.description}<br/>
+            ${Math.round(weather.main?.temp)}°F
+          </div>
+        `).openPopup();
+
+        // Add weather layer controls and multiple layers
+        try {
+          // Available weather layers with your Pro subscription
+          const weatherLayers = {
+            clouds: L.tileLayer(
+              `${CLOUDFLARE_WORKER_URL}?endpoint=tiles&layer=clouds_new&z={z}&x={x}&y={y}`,
+              { attribution: 'Weather data © OpenWeatherMap', opacity: 0.5 }
+            ),
+            precipitation: L.tileLayer(
+              `${CLOUDFLARE_WORKER_URL}?endpoint=tiles&layer=precipitation_new&z={z}&x={x}&y={y}`,
+              { attribution: 'Weather data © OpenWeatherMap', opacity: 0.6 }
+            ),
+            pressure: L.tileLayer(
+              `${CLOUDFLARE_WORKER_URL}?endpoint=tiles&layer=pressure_new&z={z}&x={x}&y={y}`,
+              { attribution: 'Weather data © OpenWeatherMap', opacity: 0.5 }
+            ),
+            wind: L.tileLayer(
+              `${CLOUDFLARE_WORKER_URL}?endpoint=tiles&layer=wind_new&z={z}&x={x}&y={y}`,
+              { attribution: 'Weather data © OpenWeatherMap', opacity: 0.5 }
+            ),
+            temp: L.tileLayer(
+              `${CLOUDFLARE_WORKER_URL}?endpoint=tiles&layer=temp_new&z={z}&x={x}&y={y}`,
+              { attribution: 'Weather data © OpenWeatherMap', opacity: 0.5 }
+            )
+          };
+
+          // Add layer control
+          const overlayMaps = {
+            "☁️ Clouds": weatherLayers.clouds,
+            "🌧️ Precipitation": weatherLayers.precipitation,
+            "🌡️ Temperature": weatherLayers.temp,
+            "🌪️ Wind Speed": weatherLayers.wind,
+            "📊 Pressure": weatherLayers.pressure
+          };
+
+          // Add clouds by default
+          weatherLayers.clouds.addTo(map);
+
+          // Add layer control to map
+          L.control.layers(null, overlayMaps, { 
+            position: 'topright',
+            collapsed: false 
+          }).addTo(map);
+
+          console.log('Weather layers and controls added');
+        } catch (error) {
+          console.log('Error adding weather layers:', error);
+        }
+      };
+      
+      setTimeout(createMap, 300); // Increased delay
+    } else {
+      console.log('No weather data or coordinates available');
+    }
+
+    // Cleanup function
+    return () => {
+      if (mapInstanceRef.current) {
+        console.log('Cleanup: removing map');
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [weather?.name, weather?.coord?.lat, weather?.coord?.lon]); // More specific dependencies
+
+  const handleSearch = () => {
+    if (inputValue.trim() !== "") {
+      setSearchQuery(inputValue);
+      setManualOverride(true);
+    }
+  };
+
+  const handleKeyPress = (e) => {
+    if (e.key === "Enter") {
+      handleSearch();
+    }
+  };
+
+  const clearError = () => {
+    setError(null);
+  };
+
+  // Auto-dismiss error after 10 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 10000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  if (loading) return <p className="text-gray-500">Loading weather data...</p>;
+
+  return (
     <div>
-        <h2 className="text-2xl font-bold mb-2">Current Weather</h2>
-        <p className="text-lg">
-            Temperature:{" "}
-            {isFahrenheit
-                ? `${toFahrenheit(weather.temperature_2m).toFixed(1)}°F`
-                : `${weather.temperature_2m}°C`}
-        </p>
+      {/* Error Popup */}
+      {error && (
+        <div className="fixed top-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-lg z-50 max-w-md">
+          <div className="flex items-start">
+            <div className="flex-1">
+              <strong className="font-bold">Error: </strong>
+              <span className="block sm:inline">{error}</span>
+            </div>
+            <button
+              onClick={clearError}
+              className="ml-2 text-red-700 hover:text-red-900"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+      
+      <div className="flex items-center gap-2 mb-4">
+        <input
+          type="text"
+          placeholder="Enter city name or ZIP code"
+          className="px-3 py-2 border rounded w-full max-w-xs"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onKeyPress={handleKeyPress}
+        />
         <button
-        className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-        onClick={() => setIsFahrenheit(!isFahrenheit)}
+          onClick={handleSearch}
+          className="p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
         >
-        Show in {isFahrenheit ? "Celsius" : "Fahrenheit"}
+          🔍
         </button>
+        <button
+          onClick={() => {
+            setManualOverride(false);
+            setInputValue("");
+            setSearchQuery("");
+          }}
+          className="ml-2 p-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400"
+        >
+          ↺ Use My Location
+        </button>
+      </div>
 
-        <p className="text-lg flex items-center gap-2">
-        <span>{getWeatherIcon(weather.weather_code)}</span>
-        <span>{getWeatherDescription(weather.weather_code)}</span>
-        </p>
+      {weather && (
+        <div className="bg-gray-100 p-4 rounded shadow-md max-w-md">
+          <h2 className="text-xl font-bold mb-2">
+            {(() => {
+              const weatherName = weather.name || "";
+              const locationName = locationInfo?.name || "";
+              let cityName = weatherName;
 
-       
+              if (
+                locationName &&
+                !locationName.includes("County") &&
+                !locationName.includes("Parish") &&
+                !locationName.includes("ZIP") &&
+                !locationName.includes("Postal") &&
+                locationName !== locationInfo?.state &&
+                locationName !== locationInfo?.country
+              ) {
+                cityName = locationName;
+              }
+
+              const region = locationInfo?.state || weather.sys?.country || "";
+              return `${cityName}${region ? `, ${region}` : ""}`;
+            })()}
+          </h2>
+          <div className="flex items-center gap-4">
+            <img
+              src={`https://openweathermap.org/img/wn/${weather.weather?.[0]?.icon}@2x.png`}
+              alt={weather.weather?.[0]?.description || "Weather icon"}
+              className="w-16 h-16"
+            />
+            <div>
+              <p className="text-3xl font-semibold">
+                {Math.round(weather.main?.temp || 0)}°F
+              </p>
+              <p className="capitalize text-gray-700">
+                {weather.weather?.[0]?.description || "Unknown"}
+              </p>
+            </div>
+          </div>
+          <p className="text-sm text-gray-600 mt-2">
+            Feels like {Math.round(weather.main?.feels_like || 0)}°F • Humidity{" "}
+            {weather.main?.humidity || 0}%
+          </p>
+        </div>
+      )}
+
+      {weather && (
+        <div className="mt-6">
+          <h3 className="text-lg font-bold mb-2">Weather Map</h3>
+          <div id="weather-map" className="h-80 w-full max-w-2xl rounded shadow border" />
+        </div>
+      )}
+
+      {forecast && (
+        <div className="mt-6">
+          <h3 className="text-lg font-bold mb-2">5-Day Forecast</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {forecast.map((day, index) => (
+              <div
+                key={index}
+                className="bg-white rounded shadow p-3 text-center"
+              >
+                <p className="font-semibold">
+                  {new Date(day.dt * 1000).toLocaleDateString("en-US", {
+                    weekday: "short",
+                  })}
+                </p>
+                <img
+                  src={`https://openweathermap.org/img/wn/${day.icon}@2x.png`}
+                  alt={day.description || "Forecast icon"}
+                  className="w-12 h-12 mx-auto"
+                />
+                <p className="text-sm text-gray-700 capitalize">
+                  {day.description}
+                </p>
+                <p className="text-sm">High: {Math.round(day.high)}°F</p>
+                <p className="text-sm">Low: {Math.round(day.low)}°F</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
-);
+  );
 }
 
 export default Weather;
