@@ -1,5 +1,5 @@
 import React from "react";
-import Weather from "./Weather";
+import Weather from "./pages/Weather";
 
 function MainPanel({ selectedSection }) {
   return (
